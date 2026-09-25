@@ -1,0 +1,16 @@
+# R
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Generated tables are kept (small, used by the README); figures are committed
+# too so they render on GitHub, and both can be regenerated with run_all.R.
+
+# OS
+.DS_Store
+Thumbs.db
+
+# R stray plots
+Rplots.pdf
