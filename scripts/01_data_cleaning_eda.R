@@ -13,6 +13,24 @@ dir.create("figures", showWarnings = FALSE)
 # --- 0.1 Load ---------------------------------------------------------
 df <- read_csv("data/cars.csv", show_col_types = FALSE)
 
+required_columns <- c("Cars", "displace", "power", "speed", "weight", "length", "width")
+if (!all(required_columns %in% names(df))) {
+  stop("cars.csv must contain: ", paste(required_columns, collapse = ", "))
+}
+df <- df %>% mutate(Cars = str_squish(Cars))
+if (anyNA(df$Cars) || any(!nzchar(df$Cars)) || anyDuplicated(df$Cars)) {
+  stop("Car names must be present and unique after trimming whitespace.")
+}
+measurements <- df[setdiff(required_columns, "Cars")]
+if (!all(vapply(measurements, is.numeric, logical(1))) ||
+    anyNA(measurements) || !all(is.finite(as.matrix(measurements))) ||
+    !all(as.matrix(measurements) > 0)) {
+  stop("All six measurements must be finite, positive numeric values without missing data.")
+}
+if (nrow(df) <= 7L || any(vapply(measurements, sd, numeric(1)) == 0)) {
+  stop("The analysis needs more than seven rows and nonconstant measurements.")
+}
+
 glimpse(df)
 
 # --- 0.2 Cleaning checks ---------------------------------------------
@@ -25,9 +43,6 @@ nrow(df)                      # 24 observations
 # All measurements must be strictly positive
 df_num <- df %>% select(where(is.numeric))
 stopifnot(all(df_num > 0))
-
-# Trim car names and make sure they are unique identifiers
-df <- df %>% mutate(Cars = str_squish(Cars))
 
 # --- 0.3 Univariate description --------------------------------------
 summary(df_num)

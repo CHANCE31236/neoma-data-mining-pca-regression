@@ -1,12 +1,12 @@
 # =====================================================================
 # 2. Ordinary multiple linear regression + VIF test
-# 3. Discussion: why the coefficients cannot be interpreted
+# 3. Discussion: conditional associations and collinearity
 #
 #   speed ~ displace + power + weight + length + width
 #
 # The model fits well (R2 = 0.915) but the variance inflation factors
-# prove severe multicollinearity, so the individual coefficients are
-# unstable and partly counter-intuitive.
+# indicate strong multicollinearity and inflated standard errors.
+# Conditional associations can differ from marginal slopes.
 # =====================================================================
 
 library(tidyverse)
@@ -31,8 +31,7 @@ coef_table <- as.data.frame(summary(lm_full)$coefficients)
 names(coef_table) <- c("estimate", "std_error", "t_value", "p_value")
 coef_table$term <- rownames(coef_table)
 coef_table <- coef_table %>%
-  select(term, everything()) %>%
-  mutate(across(where(is.numeric), ~ round(.x, 4)))
+  select(term, everything())
 coef_table
 
 #   term        estimate   std_error   t_value   p_value
@@ -53,16 +52,16 @@ vif_values
 
 sqrt(vif_values)   # SEs inflated by a factor > 3 for displace and length
 
-# --- 3.1 Why the coefficients are not interpretable -------------------
+# --- 3.1 Interpreting conditional associations with collinearity ------
 # * displace correlates +0.69 with speed, yet its coefficient is ~0 and
-#   clearly not significant: its effect is absorbed by power/weight/length.
+#   not statistically significant after adjustment for the other predictors.
 # * weight correlates +0.49 with speed, yet its coefficient is NEGATIVE
-#   (-0.094 km/h per kg). Sign reversal is the classic symptom of
-#   collinearity: a coefficient is estimated "holding the other predictors
-#   constant", and that comparison is meaningless when weight, length and
-#   displacement always move together.
-# * Consequence: the model is usable for PREDICTION, but the coefficients
-#   must NOT be read as "the effect of each variable on top speed".
+#   (-0.094 km/h per kg). This conditional association can differ from
+#   the marginal slope. A sign reversal alone does not prove instability
+#   or make the conditional comparison meaningless.
+# * High VIF inflates standard errors. These observational coefficients
+#   describe associations and do not establish causal effects. Predictive
+#   performance requires evaluation on observations excluded from fitting.
 
 # --- 3.2 Collinearity-free reference: one predictor at a time ---------
 simple_slopes <- sapply(predictors, function(v) {
@@ -71,7 +70,7 @@ simple_slopes <- sapply(predictors, function(v) {
 })
 tibble(variable = predictors,
        simple_slope = round(as.numeric(simple_slopes), 4),
-       multiple_model_slope = c(0.0042, 0.7353, -0.0939, 0.3779, -0.5972))
+       multiple_model_slope = unname(coef(lm_full)[predictors]))
 # Every simple slope is positive: the negative weight coefficient only
 # appears once all five predictors enter the model together.
 

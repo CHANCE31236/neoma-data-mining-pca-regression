@@ -7,7 +7,7 @@ A small end-to-end R case study built around a classic question:
 > Can we predict a car's top speed from its technical characteristics, and can we trust the
 > coefficients of the regression when those characteristics all measure the same thing?
 
-The answer is developed in six steps: exploratory analysis → correlation heatmap → ordinary
+The answer is developed through exploratory and validated comparisons: exploratory analysis → correlation heatmap → ordinary
 multiple regression + VIF → discussion of the multicollinearity problem → PCA → principal
 component regression → comparison of both models.
 
@@ -42,8 +42,9 @@ Source file: [`data/cars.csv`](data/cars.csv).
 │   ├── 03_ols_regression_vif.R      # step 2/3 — OLS + VIF + discussion
 │   ├── 04_pca.R                     # step 4 — PCA of the predictors
 │   ├── 05_principal_component_regression.R   # step 5 — PCR
-│   └── 06_model_comparison.R        # step 6 — model comparison
-├── figures/                         # generated plots (git-ignored)
+│   ├── 06_model_comparison.R        # step 6 — in-sample model comparison
+│   └── 07_leave_one_out_validation.R # step 7 — held-out prediction comparison
+├── figures/                         # committed reference plots; regenerated at runtime
 └── results/                         # generated CSV tables
 ```
 
@@ -59,7 +60,7 @@ R ≥ 4.0. Run everything from the repository root:
 Rscript run_all.R
 ```
 
-or `source("run_all.R")` in RStudio. Figures are written to `figures/`, numeric results to `results/`.
+or `source("run_all.R")` in RStudio. The entry point locates the repository from its own path and restores the caller's working directory. Figures are written to `figures/`, numeric results to `results/`, and R/package versions to `results/session-info.txt`.
 
 ---
 
@@ -120,19 +121,17 @@ Rule of thumb: VIF > 5 is worrying, VIF > 10 is severe. Two predictors exceed 10
 just below; `sqrt(VIF)` shows that the standard errors of `displace` and `length` are inflated by a
 factor above 3.
 
-## Step 3 — Why the coefficients cannot be interpreted
+## Step 3 — Conditional associations and collinearity
 
-* `displace` correlates **+0.69** with speed, yet its coefficient is ≈ 0 and clearly not
-  significant. Its explanatory power has been absorbed by `power`, `weight` and `length`.
-* `weight` correlates **+0.49** with speed, yet its coefficient is **negative** (–0.094 km/h per kg).
-  This sign reversal is the classic symptom of collinearity: a coefficient is estimated "holding the
-  other predictors constant", and that comparison is meaningless when weight, length and
-  displacement always move together.
-* Fitted alone, every predictor has a positive slope — the negative weight coefficient only appears
-  in the joint model.
+* `displace` correlates +0.69 with speed, but its joint-model coefficient is
+  near zero and not statistically significant after adjusting for the other predictors.
+* `weight` correlates +0.49 with speed, while its joint-model coefficient is
+  negative (about -0.094 km/h per kg). A conditional slope can differ from a
+  marginal association; sign reversal alone does not prove instability.
+* High VIF inflates standard errors. These observational coefficients need
+  careful conditional interpretation and do not establish causal effects.
 
-**Conclusion:** the model is fine for *prediction*, but its coefficients must not be read as
-"the effect of each variable on top speed".
+Predictive performance is assessed separately using the held-out comparison below.
 
 ## Step 4 — PCA: compressing redundant predictors
 
@@ -211,31 +210,74 @@ predictor variance: its correlation with speed (0.57) is almost as high as PC1's
 
 * Higher in-sample accuracy (RMSE 7.2 km/h) — it keeps all the raw information.
 * Output stays in the original units (km/h per hp, per kg, …).
-* But VIF up to 10.5: unstable coefficients, reversed signs, results sensitive to adding or
-  removing a single car; 6 parameters estimated on 24 observations.
+* VIF up to 10.5 inflates coefficient standard errors; 6 parameters are
+  estimated from 24 observations. Conditional slopes can have different signs
+  from marginal associations.
 
 **Principal component regression**
 
-* Orthogonal predictors (VIF = 1): numerically stable and unique estimates.
-* Only 3 parameters: less variance, easier to generalise.
+* Orthogonal component predictors (VIF = 1) remove collinearity in the fitted regression.
+* Only 3 parameters: a more parsimonious model; generalization must be measured on held-out data.
 * Components are interpretable (size/power vs. power/width contrast).
 * But a lower in-sample fit: PC1 + PC2 keep 93.8 % of the *predictor* variance yet explain only
   74 % of the *speed* variance — the 6 % of predictor variance that was dropped happened to matter
   for the target.
 * Coefficients live in component space, not in "km/h per kg".
 
-**Practical takeaway.** For pure predictive accuracy on this tiny sample, the OLS model (or PCR with
-3–5 components) wins. For interpretation, stability and a parsimonious model, PCR is the better
-choice — and if the goal is prediction *plus* stability, ridge/lasso regression is the natural next
-step, since it shrinks coefficients without discarding any variable.
+**Practical interpretation.** OLS fits the observed training data more closely.
+PCR with two components uses fewer parameters and removes component collinearity,
+with lower training fit. The held-out comparison below measures predictive
+performance for these fixed specifications. Both models describe observational
+associations rather than causal effects.
 
 ---
 
 ## Limitations
 
-* 24 observations only: all metrics reported here are **in-sample**. A proper assessment would use
-  cross-validation (e.g. leave-one-out), especially to choose the number of components.
+* There are only 24 observations. Steps 0–6 report **in-sample** fit; step 7
+  reports leave-one-out error for fixed specifications. Component selection
+  requires a separate tuning and evaluation procedure.
 * PCA is unsupervised: it maximises the variance of the predictors, not their relationship with
   `speed`. That is exactly why PC3 (3.5 % of predictor variance) still improves the fit notably.
 * The data come from a single car market/era, so the model should not be extrapolated to modern
   vehicles.
+
+
+## Held-out validation
+
+`07_leave_one_out_validation.R` leaves out each of the 24 cars in turn. Each
+fold refits OLS and estimates PCA centering, scaling, and loadings using only
+the 23 training cars, then predicts the held-out car. The earlier model
+comparison reports training fit and should be read separately.
+
+| Specification | Leave-one-out RMSE (km/h) | Leave-one-out MAE (km/h) | Predictive R² |
+|---|---:|---:|---:|
+| OLS (5 predictors) | 10.44 | 7.93 | 0.821 |
+| PCR (1 PCs) | 20.64 | 15.76 | 0.301 |
+| PCR (2 PCs) | 15.01 | 12.75 | 0.630 |
+| PCR (3 PCs) | 13.57 | 10.10 | 0.698 |
+| PCR (4 PCs) | 12.68 | 9.02 | 0.736 |
+| PCR (5 PCs) | 10.44 | 7.93 | 0.821 |
+
+OLS has the smallest observed held-out error among these fixed specifications;
+PCR with all five components spans the same linear model and produces the same
+predictions. This small observational sample supports an exploratory comparison,
+not a broad generalization claim. Choosing the number of components using these
+same validation errors would require nested validation for an unbiased estimate
+of the tuned model's error.
+
+Model metrics and coefficients are computed from fitted models. Predictive R²
+is `1 - SSE / SST`, so poorly calibrated predictions can receive a negative value.
+A conditional regression coefficient is an association and does not establish a
+causal effect. VIF measures standard-error inflation; a sign reversal alone does
+not make a conditional coefficient meaningless.
+
+## Validation
+
+```bash
+Rscript --vanilla tests/smoke.R
+```
+
+The check runs a copy of the pipeline from another working directory, verifies
+all 144 held-out predictions, checks the OLS/full-PCR equivalence, and confirms
+generated outputs. GitHub Actions runs it for every pull request.
