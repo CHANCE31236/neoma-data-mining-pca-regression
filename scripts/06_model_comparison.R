@@ -36,7 +36,7 @@ pred_df
 # --- 6.3 Metrics ------------------------------------------------------
 metrics <- function(real, pred) {
   tibble(
-    r_squared     = round(summary(lm(real ~ pred))$r.squared, 4),
+    r_squared     = round(1 - sum((real - pred)^2) / sum((real - mean(real))^2), 4),
     rmse          = round(sqrt(mean((real - pred)^2)), 4),
     mae           = round(mean(abs(real - pred)), 4),
     max_abs_error = round(max(abs(real - pred)), 4)
@@ -53,15 +53,18 @@ comparison
 #   PCR : R2 0.7406 | RMSE 12.57 km/h | MAE 10.85 | max error 31.15
 #   (worst PCR errors: nissan vanette +31.2, vw caravelle +20.4)
 
-comparison_ext <- tibble(
-  model        = c("OLS (5 predictors)", "PCR (PC1 + PC2)"),
-  r_squared    = c(0.9148, 0.7406),
-  adj_r2       = c(0.8911, 0.7159),
-  sigma        = c(8.3196, 13.4408),
-  rmse         = c(7.2050, 12.5727),
-  max_vif      = c(10.516, 1.000),
-  n_parameters = c(6, 3)
-)
+comparison_ext <- map_dfr(list(lm_full, lm_pca), function(model) {
+  model_summary <- summary(model)
+  tibble(
+    r_squared = model_summary$r.squared,
+    adj_r2 = model_summary$adj.r.squared,
+    sigma = model_summary$sigma,
+    rmse = sqrt(mean(resid(model)^2)),
+    max_vif = max(vif(model)),
+    n_parameters = length(coef(model))
+  )
+}) %>%
+  mutate(model = c("OLS (5 predictors)", "PCR (PC1 + PC2)"), .before = 1)
 comparison_ext
 
 # --- 6.4 Predicted vs. real ------------------------------------------
@@ -95,21 +98,20 @@ ggsave("figures/06_residuals_boxplot.png", p_res, width = 5.5, height = 4, dpi =
 # OLS
 #   + best in-sample accuracy (RMSE 7.2 km/h), keeps all raw information
 #   + familiar output in the original units
-#   - VIF up to 10.5: coefficients unstable, signs can be reversed
-#     (weight negative although it correlates positively with speed)
-#   - coefficients not interpretable, sensitive to adding/removing a car
+#   - VIF up to 10.5 inflates coefficient standard errors
+#     (weight has different marginal and conditional association signs)
+#   - high VIF inflates uncertainty in conditional coefficient estimates
 #   - 6 parameters for 24 observations
 # PCR
-#   + predictors orthogonal (VIF = 1): stable, numerically clean estimates
-#   + 3 parameters instead of 6: less variance, easier to generalise
+#   + orthogonal component predictors (VIF = 1) remove collinearity
+#   + 3 parameters instead of 6: a more parsimonious specification
 #   + components have a meaning (PC1 = global size/power, PC2 = power/width)
 #   - lower in-sample fit: PC1 + PC2 keep 93.8% of the predictor variance
 #     but only 74% of the speed variance (the discarded 6% of predictor
 #     variance mattered for the target)
 #   - coefficients live in PC space, not directly in km/h per kg or per cc
-# Practical conclusion: for pure prediction on this tiny sample, keep OLS
-# (or PCR with 3-5 components); for interpretation and stability, prefer
-# PCR or a penalised alternative (ridge / lasso).
+# These are training-set metrics. The next step assesses prediction with
+# leave-one-out validation and refits PCA within each training fold.
 
 write_csv(pred_df,       "results/06_predictions.csv")
 write_csv(comparison_ext,"results/06_model_comparison.csv")
